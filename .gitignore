@@ -1,0 +1,7 @@
+/data
+/tmp
+stalwart.7z
+.env
+.env.*
+!/.env.example
+!/.env.*.example

@@ -1,0 +1,66 @@
+services:
+  traefik:
+    image: traefik:v3.6.8
+    restart: always
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --global.checknewversion=false
+      - --global.sendanonymoususage=false
+      - --log=true
+      - --log.level=INFO
+      - --certificatesresolvers.le=true
+      - --certificatesresolvers.le.acme.email=postmaster@${DOMAIN}
+      - --certificatesresolvers.le.acme.keytype=EC256
+      - --certificatesresolvers.le.acme.storage=/etc/acme/acme.json
+      - --certificatesresolvers.le.acme.tlschallenge=true
+      - --entrypoints.stalwart-web=true
+      - --entrypoints.stalwart-web.address=:${STALWART_WEB_PORT}/tcp
+      - --entrypoints.stalwart-web.http.tls=true
+      - --entrypoints.stalwart-web.http.tls.certresolver=le
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./tmp/acme:/etc/acme
+    ports:
+      - 443:443/tcp
+    networks:
+      traefik-net:
+
+  traefik-certs-dumper:
+    image: ghcr.io/kereis/traefik-certs-dumper:1.8.18
+    depends_on:
+      - traefik
+    restart: always
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./etc/traefik-certs-dumper/hook.sh:/hook/hook.sh:ro
+      - ./tmp/acme:/traefik:ro
+      - ./tmp/ssl/:/output/
+    network_mode: none
+
+  stalwart:
+    image: stalwartlabs/stalwart:v0.15.4-alpine
+    restart: always
+    hostname: mail.${DOMAIN}
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./data/stalwart/:/opt/stalwart/data/
+      - ./etc/stalwart/:/opt/stalwart/etc/
+      - ./tmp/ssl/mail.${DOMAIN}/:/opt/stalwart/ssl/:ro
+    ports:
+      - 25:25/tcp
+      - 465:465/tcp
+      - 993:993/tcp
+    networks:
+      traefik-net:
+    labels:
+      traefik.enable: true
+      traefik.http.routers.stalwart-web.rule: Host(`mail.${DOMAIN}`) || Host(`autoconfig.${DOMAIN}`) || Host(`autodiscover.${DOMAIN}`) || Host(`mta-sts.${DOMAIN}`)
+      traefik.http.routers.stalwart-web.entrypoints: stalwart-web
+      traefik.http.routers.stalwart-web.service: stalwart-web
+      traefik.http.services.stalwart-web.loadbalancer.server.port: 8080
+
+networks:
+  traefik-net:
